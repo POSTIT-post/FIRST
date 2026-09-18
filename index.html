@@ -44,7 +44,7 @@
   }
   .screen{
     flex:1;
-    padding:22px 20px 100px;
+    padding:22px 20px 140px;
     display:none;
     animation:fadeIn .25s ease;
   }
@@ -167,10 +167,19 @@
 
   .empty-state{text-align:center;padding:26px 10px;color:var(--navy-soft);font-size:13.5px;}
 
-  .navbar{position:sticky;bottom:0;left:0;right:0;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border-top:1px solid var(--ice-line);display:flex;padding:8px 6px calc(8px + env(safe-area-inset-bottom));}
+  .navbar{position:relative;left:0;right:0;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border-top:1px solid var(--ice-line);display:flex;padding:8px 6px calc(8px + env(safe-area-inset-bottom));}
   .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;border-radius:12px;color:var(--navy-soft);cursor:pointer;font-size:10.5px;font-weight:650;}
   .nav-item .ic{font-size:19px;}
   .nav-item.active{color:var(--ember);}
+
+  .bottom-dock{position:sticky;bottom:0;left:0;right:0;z-index:40;}
+  .run-mini-bar{
+    display:none;align-items:center;justify-content:space-between;gap:10px;
+    background:var(--ember);color:#fff;padding:11px 18px;font-size:13px;font-weight:700;
+    cursor:pointer;
+  }
+  .run-mini-bar.show{display:flex;}
+  .run-mini-bar .mb-cta{font-weight:650;opacity:.9;font-size:12.5px;white-space:nowrap;}
 
   .modal-backdrop{position:fixed;inset:0;background:rgba(15,34,51,.4);z-index:50;display:none;align-items:flex-end;justify-content:center;}
   .modal-backdrop.active{display:flex;}
@@ -264,6 +273,7 @@
     </div>
     <button class="btn btn-primary" id="start-run-btn" onclick="startRun()">🏃 러닝 시작</button>
     <p class="wakelock-note">시작하면 화면이 자동으로 꺼지지 않도록 잠금을 막아둬요. (완전한 화면 꺼짐 상태 측정은 브라우저 한계로 보장하기 어려워요 — 아래 안내 참고)</p>
+    <p class="wakelock-note">📍 오차가 자꾸 크게 나온다면: 휴대폰 위치 설정에서 "정밀 위치(Precise Location)"가 켜져 있는지, 하늘이 트인 실외인지 확인해보세요.</p>
   </section>
 
   <!-- ============ RUN: ACTIVE ============ -->
@@ -364,13 +374,19 @@
     </div>
   </section>
 
-  <!-- ============ NAVBAR ============ -->
-  <nav class="navbar">
-    <div class="nav-item active" data-screen="home" onclick="goTo('home')"><span class="ic">🏠</span>홈</div>
-    <div class="nav-item" data-screen="run-start" onclick="goTo('run-start')"><span class="ic">🏃</span>러닝</div>
-    <div class="nav-item" data-screen="rank" onclick="goTo('rank')"><span class="ic">🏆</span>순위</div>
-    <div class="nav-item" data-screen="profile" onclick="goTo('profile')"><span class="ic">👤</span>내 기록</div>
-  </nav>
+  <!-- ============ MINI BAR + NAVBAR ============ -->
+  <div class="bottom-dock">
+    <div class="run-mini-bar" id="run-mini-bar" onclick="goToScreen('run-active'); updateMiniBar();">
+      <span>🏃 측정 중 · <span id="mb-dist">0.00</span>km · <span id="mb-time">00:00</span></span>
+      <span class="mb-cta">돌아가기 ›</span>
+    </div>
+    <nav class="navbar">
+      <div class="nav-item active" data-screen="home" onclick="goTo('home')"><span class="ic">🏠</span>홈</div>
+      <div class="nav-item" data-screen="run-start" onclick="goTo('run-start')"><span class="ic">🏃</span>러닝</div>
+      <div class="nav-item" data-screen="rank" onclick="goTo('rank')"><span class="ic">🏆</span>순위</div>
+      <div class="nav-item" data-screen="profile" onclick="goTo('profile')"><span class="ic">👤</span>내 기록</div>
+    </nav>
+  </div>
 </div>
 
 <!-- Settings Modal -->
@@ -567,14 +583,29 @@ function goToScreen(screen){
   document.querySelectorAll('.nav-item').forEach(n=>{
     n.classList.toggle('active', n.dataset.screen===screen);
   });
+  // 온보딩(닉네임 설정 전) 중에는 하단 탭을 숨겨서, 프로필 없이 다른 화면으로 넘어가 먹통되는 걸 방지
+  const dock = document.querySelector('.bottom-dock');
+  if(dock) dock.style.display = (screen==='onboard') ? 'none' : '';
   window.scrollTo(0,0);
 }
 async function goTo(screen){
+  if(!profile){
+    // 안전장치: 프로필(닉네임 등)이 아직 없는데 다른 화면으로 이동하려는 시도는 막고 온보딩으로 되돌림
+    goToScreen('onboard');
+    return;
+  }
+  if(screen==='run-start' && isRunActive()){
+    // 이미 측정 중이면 '시작' 화면 대신 진행 중인 러닝 화면으로 되돌아감 (중복 시작 방지)
+    goToScreen('run-active');
+    updateMiniBar();
+    return;
+  }
   goToScreen(screen);
   if(screen==='home') await renderHome();
   if(screen==='run-start') renderRunStart();
   if(screen==='rank') await renderRank();
   if(screen==='profile') renderProfile();
+  updateMiniBar();
 }
 
 function showToast(msg){
@@ -587,6 +618,7 @@ function showToast(msg){
 
 /* ---------------- settings ---------------- */
 function openSettings(){
+  if(!profile) return;
   document.getElementById('set-nickname').value = profile.nickname;
   document.getElementById('set-goal').value = profile.goalKm;
   setUnit(profile.unit, true);
@@ -611,6 +643,7 @@ async function saveSettings(){
 
 /* ---------------- room (real shared storage) ---------------- */
 async function openRoomModal(){
+  if(!profile) return;
   document.getElementById('room-modal-code').textContent = profile.roomCode || '아직 없음';
   const nameInput = document.getElementById('room-name-input');
   if(nameInput) nameInput.value = profile.roomName || '';
@@ -838,6 +871,26 @@ document.addEventListener('visibilitychange', async ()=>{
 /* ---------------- run state ---------------- */
 let run = null;
 let watchId = null;
+let bgWatcherId = null;
+/* run이 '측정 중' 상태인지 (종료(stopRun) 후 저장 전 상태는 제외) */
+function isRunActive(){ return !!run && run.endTs===undefined; }
+
+/* 다른 화면으로 이동해도 계속 보이는 측정 중 미니바 갱신 */
+function updateMiniBar(){
+  const bar = document.getElementById('run-mini-bar');
+  if(!bar) return;
+  if(!isRunActive()){ bar.classList.remove('show'); return; }
+  const onRunScreen = document.getElementById('screen-run-active').classList.contains('active');
+  if(onRunScreen){ bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  document.getElementById('mb-dist').textContent = run.distKm.toFixed(2);
+  document.getElementById('mb-time').textContent = fmtTime(run.activeSec);
+}
+
+/* Capacitor 네이티브 앱으로 빌드됐는지 확인 (브라우저에서 열면 false) */
+function isNativeApp(){
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
 
 function renderRunStart(){
   document.getElementById('rs-goal-val').textContent = profile.goalKm.toFixed(1);
@@ -862,6 +915,12 @@ async function adjustGoal(delta){
 }
 
 async function startRun(){
+  if(isRunActive()){
+    showToast('이미 측정 중인 러닝이 있어요');
+    goToScreen('run-active');
+    updateMiniBar();
+    return;
+  }
   if(!('geolocation' in navigator)){
     showToast('이 브라우저는 위치 기능을 지원하지 않아요');
     return;
@@ -879,7 +938,9 @@ async function startRun(){
     pauseStartedAt: null,
     tickHandle: null,
   };
-  await requestWakeLock();
+  if(!isNativeApp()){
+    await requestWakeLock();
+  }
   goToScreen('run-active');
   document.getElementById('run-dist').textContent = '0.00';
   document.getElementById('run-time').textContent = '00:00';
@@ -887,30 +948,98 @@ async function startRun(){
   setRunStatus('tracking', '🛰️ GPS 측정 중');
   document.getElementById('pause-btn').textContent = '⏸ 일시정지';
 
-  watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
-    enableHighAccuracy:true, maximumAge:1000, timeout:15000
-  });
+  if(isNativeApp()){
+    /* 네이티브 앱: 화면이 꺼져도 계속 측정 + 상단에 알림 표시 */
+    await startBackgroundWatch();
+  }else{
+    /* 브라우저: 화면이 켜져있는 동안만 측정 */
+    watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
+      enableHighAccuracy:true, maximumAge:1000, timeout:15000
+    });
+  }
   run.tickHandle = setInterval(updateRunTimer, 1000);
 }
+
+async function startBackgroundWatch(){
+  try{
+    const { BackgroundGeolocation } = window.Capacitor.Plugins;
+    bgWatcherId = await BackgroundGeolocation.addWatcher(
+      {
+        backgroundTitle: 'RUNNING MATES',
+        backgroundMessage: '화면이 꺼져있어도 거리를 측정하고 있어요',
+        requestPermissions: true,
+        stale: false,
+        distanceFilter: 5,
+      },
+      (location, error) => {
+        if(error){
+          if(error.code === 'NOT_AUTHORIZED'){
+            showToast('위치 권한이 필요해요. 설정에서 "항상 허용"으로 바꿔주세요');
+          }
+          onPositionError(error);
+          return;
+        }
+        onPosition({ coords: { latitude: location.latitude, longitude: location.longitude, accuracy: location.accuracy } });
+      }
+    );
+  }catch(e){
+    console.error('백그라운드 위치 측정 시작 실패', e);
+    showToast('백그라운드 위치 측정을 시작하지 못했어요');
+  }
+}
+async function stopBackgroundWatch(){
+  if(bgWatcherId && isNativeApp()){
+    try{
+      const { BackgroundGeolocation } = window.Capacitor.Plugins;
+      await BackgroundGeolocation.removeWatcher({ id: bgWatcherId });
+    }catch(e){ console.error('백그라운드 위치 측정 종료 실패', e); }
+    bgWatcherId = null;
+  }
+}
+
 
 function onPosition(pos){
   if(!run || run.isPaused) return;
   const {latitude, longitude, accuracy} = pos.coords;
-  if(accuracy && accuracy > 60){
-    setRunStatus('tracking', `🛰️ 정확도 개선 중 (±${Math.round(accuracy)}m)`);
+  const acc = accuracy || 15;
+  // 완전히 못 쓰는 수준(500m 이상, 브라우저가 위치를 거의 못 잡았을 때)만 버림.
+  // 그보다 낮은 정확도는 버리지 않고 계속 측정하되, 아래 noiseFloor로 오차를 눌러줌.
+  // (예전엔 50m만 넘어도 통째로 버려서, 기기가 계속 오차 큰 값만 주면 거리가 영원히 0에서 멈췄음)
+  if(acc > 500){
+    setRunStatus('error', `⚠️ 위치 신호를 찾는 중이에요 (±${Math.round(acc)}m)`);
     return;
   }
-  const point = {lat:latitude, lng:longitude, t:Date.now()};
+  const point = {lat:latitude, lng:longitude, t:Date.now(), acc};
   if(run.lastPoint){
-    const d = haversineKm(run.lastPoint.lat, run.lastPoint.lng, point.lat, point.lng);
-    if(d > 0.002 && d < 0.3){
-      run.distKm += d;
+    const dtSec = (point.t - run.lastPoint.t)/1000;
+    const dKm = haversineKm(run.lastPoint.lat, run.lastPoint.lng, point.lat, point.lng);
+    const speedMs = dtSec>0 ? (dKm*1000)/dtSec : 0;
+    // 사람이 뛸 수 없는 속도로 순간이동한 튐(GPS jump)은 이번 좌표를 통째로 버리고,
+    // 다음 신호를 이전의 정상 위치와 다시 비교함
+    if(speedMs > 8.5){
+      updateMiniBar();
+      return;
     }
+    // 두 지점의 오차범위 합보다 이동거리가 작으면 '제자리 흔들림'으로 보고 거리에 반영하지 않음
+    // (단, 오차가 아무리 커도 최대 50m로 상한을 둬서, 오차가 큰 기기에서도 거리 측정 자체는 계속 진행됨)
+    const noiseFloorKm = Math.min(0.05, Math.max(0.004, (acc + (run.lastPoint.acc||15)) / 1000));
+    if(dKm > noiseFloorKm && dKm < 0.3){
+      run.distKm += dKm;
+    }
+    run.lastPoint = point;
+  } else {
+    run.lastPoint = point;
   }
-  run.lastPoint = point;
   run.path.push([point.lat, point.lng]);
   document.getElementById('run-dist').textContent = run.distKm.toFixed(2);
-  setRunStatus('tracking', '🛰️ GPS 측정 중');
+  if(acc > 100){
+    setRunStatus('tracking', `🛰️ 신호가 약해요 (±${Math.round(acc)}m) · 측정은 계속돼요`);
+  } else if(acc > 30){
+    setRunStatus('tracking', `🛰️ 측정 중 (±${Math.round(acc)}m)`);
+  } else {
+    setRunStatus('tracking', '🛰️ GPS 측정 중');
+  }
+  updateMiniBar();
 }
 function onPositionError(){
   setRunStatus('error', '⚠️ GPS 신호를 찾는 중이에요');
@@ -921,6 +1050,7 @@ function setRunStatus(cls, text){
   el.textContent = text;
 }
 function updateRunTimer(){
+  updateMiniBar();
   if(!run || run.isPaused) return;
   run.activeSec = Math.floor((Date.now() - run.startTs - run.pausedSec)/1000);
   document.getElementById('run-time').textContent = fmtTime(run.activeSec);
@@ -946,6 +1076,7 @@ function togglePause(){
 function stopRun(){
   if(!run) return;
   if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+  stopBackgroundWatch();
   if(run.tickHandle){ clearInterval(run.tickHandle); }
   if(run.isPaused){ run.pausedSec += (Date.now()-run.pauseStartedAt); }
   releaseWakeLock();
@@ -1017,6 +1148,7 @@ async function saveRun(){
 
 /* ---------------- home ---------------- */
 async function renderHome(){
+  if(!profile) return;
   document.getElementById('home-date').textContent =
     new Date().toLocaleDateString('ko-KR', {month:'long', day:'numeric', weekday:'long'}) + ' · 겨울방학 러닝';
 
@@ -1093,6 +1225,7 @@ function timeAgo(ts){
 let rankTab = 'total';
 function setRankTab(t){ rankTab = t; renderRank(); }
 async function renderRank(){
+  if(!profile) return;
   const codeEl = document.getElementById('rank-room-code');
   const subEl = document.getElementById('rank-room-code-sub');
   codeEl.textContent = profile.roomName || profile.roomCode || '방을 만들어보세요';
@@ -1151,6 +1284,7 @@ async function renderRank(){
 
 /* ---------------- profile / my records ---------------- */
 function renderProfile(){
+  if(!profile) return;
   document.getElementById('profile-name').textContent = profile.nickname;
   document.getElementById('profile-avatar').textContent = profile.avatar;
   const total = totalKm(runs);
